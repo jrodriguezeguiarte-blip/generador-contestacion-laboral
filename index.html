@@ -204,8 +204,8 @@ if(window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 // ── CONFIGURACIÓN — editar estos valores ──────────────────────────────────
 const OD_CONFIG = {
-  clientId:    "PEGAR-AQUI-EL-CLIENT-ID-DE-AZURE",   // App registration → Overview → Application (client) ID
-  tenantId:    "PEGAR-AQUI-EL-TENANT-ID",             // App registration → Overview → Directory (tenant) ID
+  clientId:    "4ea747d4-8fe3-46f3-a9de-c58a4e947127",   // App registration → Overview → Application (client) ID
+  tenantId:    "7e2e226f-9ea1-4613-b9da-4193955fb55b",             // App registration → Overview → Directory (tenant) ID
   folderPath:  "/Escritos de Contestacion",            // Ruta en OneDrive (relativa a la raíz)
   maxFiles:    30,                                      // Máximo de archivos a cargar
   fileTypes:   [".docx", ".doc", ".txt"],              // Tipos de archivo a leer
@@ -247,7 +247,7 @@ function odInit(callback) {
     if (callback) callback(new Error("MSAL no disponible"));
     return;
   }
-  if (OD_CONFIG.clientId === "PEGAR-AQUI-EL-CLIENT-ID-DE-AZURE") {
+  if (OD_CONFIG.clientId === "4ea747d4-8fe3-46f3-a9de-c58a4e947127") {
     console.log("OneDrive: configure clientId y tenantId en OD_CONFIG");
     return;
   }
@@ -298,7 +298,7 @@ async function odGetToken() {
 
 async function odLogin() {
   const st = document.getElementById("od-status");
-  if (OD_CONFIG.clientId === "PEGAR-AQUI-EL-CLIENT-ID-DE-AZURE") {
+  if (OD_CONFIG.clientId === "4ea747d4-8fe3-46f3-a9de-c58a4e947127") {
     alert("Configure primero el clientId y tenantId en OD_CONFIG.\nEdite el HTML y busque 'OD_CONFIG'.");
     return;
   }
