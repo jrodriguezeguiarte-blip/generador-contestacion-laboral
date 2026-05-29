@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-AIzaSyAvR14BxmJua6vz3Wq5yFGDjHe0ufDb2rw<head>
+<html lang="es">
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Generador de Contestación Laboral — Ibarra del Paso Gallego, S.C.</title>
@@ -164,10 +165,10 @@ if(window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   <span id="apikey-status" style="color:#D4A96A;font-family:Georgia,serif;font-size:13px;"></span>
   <div style="width:1px;height:28px;background:rgba(255,255,255,0.2);margin:0 4px;"></div>
   <!-- OneDrive panel -->
-  <span style="color:#D4A96A;font-family:Georgia,serif;font-size:13px;white-space:nowrap;font-weight:700;">📁 OneDrive:</span>
-  <button id="od-login-btn" onclick="odLogin()"
-    style="padding:6px 14px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-family:Georgia,serif;font-size:12px;cursor:pointer;white-space:nowrap;">
-    Conectar con M365
+  <span style="color:#D4A96A;font-family:Georgia,serif;font-size:13px;white-space:nowrap;font-weight:700;">📁 Google Drive:</span>
+  <button id="od-login-btn" onclick="gdLogin()"
+    style="padding:6px 14px;background:#4285F4;color:#fff;border:none;border-radius:4px;font-family:Georgia,serif;font-size:12px;cursor:pointer;white-space:nowrap;">
+    Conectar con Google
   </button>
   <span id="od-user" style="color:#7fc97f;font-family:Georgia,serif;font-size:12px;display:none;"></span>
   <button id="od-pick-btn" onclick="odPickFolder()" style="display:none;padding:6px 14px;background:#2d6b45;color:#fff;border:none;border-radius:4px;font-family:Georgia,serif;font-size:12px;cursor:pointer;white-space:nowrap;">
@@ -197,329 +198,259 @@ if(window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
-//  INTEGRACIÓN ONEDRIVE / MICROSOFT GRAPH
-//  Configuración: registrar app en portal.azure.com y pegar el client_id abajo
+//  INTEGRACIÓN GOOGLE DRIVE
+//  1. Ve a console.cloud.google.com → Nuevo proyecto → APIs → Google Drive API
+//  2. Credenciales → OAuth 2.0 → Web app → Authorized origins: URL de Vercel
+//  3. Pega el client_id abajo
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── CONFIGURACIÓN — editar estos valores ────────────────────────────────── 
-const OD_CONFIG = {
-  clientId:    "4ea747d4-8fe3-46f3-a9de-c58a4e947127",   // App registration → Overview → Application (client) ID
-  tenantId:    "7e2e226f-9ea1-4613-b9da-4193955fb55b",             // App registration → Overview → Directory (tenant) ID
-  folderPath:  "/Escritos de Contestacion",            // Ruta en OneDrive (relativa a la raíz)
-  maxFiles:    30,                                      // Máximo de archivos a cargar
-  fileTypes:   [".docx", ".doc", ".txt"],              // Tipos de archivo a leer
-};
-// ─────────────────────────────────────────────────────────────────────────
-
-// Estado global de OneDrive
-window.OD = {
-  msalApp: null,
-  account: null,
-  token: null,
-  folderItems: [],
-  loadedTexts: [],   // Array de {name, text} — disponible para los prompts
-  folderPath: OD_CONFIG.folderPath,
-  ready: false,
+const GD_CONFIG = {
+  clientId:   '895121992376-ueh118f51vl9v2slhgvm7fpjum8q862r.apps.googleusercontent.com',  // Google Cloud Console → Credentials
+  apiKey:     'AIzaSyAvR14BxmJua6vz3Wq5yFGDjHe0ufDb2rw',    // Google Cloud Console → Credentials → API Key
+  folderId:   '',          // ID de la carpeta (se selecciona desde la app)
+  maxFiles:   30,
+  fileTypes:  ['application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+               'text/plain'],
 };
 
-// Cargar MSAL dinámicamente (solo cuando el usuario lo necesita)
-function odLoadMSAL(callback) {
-  if (window.msal) { callback(); return; }
-  const s = document.createElement("script");
-  s.src = "https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js";
+window.GD = {
+  accessToken: null,
+  account:     null,
+  folderId:    GD_CONFIG.folderId,
+  folderName:  '',
+  loadedTexts: [],
+  ready:       false,
+};
+
+// ── Cargar librerías de Google dinámicamente ──────────────────────────────
+function gdLoadGSI(callback) {
+  if (window.google && window.google.accounts) { callback(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
   s.onload = callback;
-  s.onerror = () => alert("No se pudo cargar MSAL. Verifique la conexión a internet del servidor.");
+  s.onerror = () => {
+    const el = document.getElementById('od-status');
+    if (el) el.textContent = 'Error: No se pudo cargar Google Sign-In.';
+  };
   document.head.appendChild(s);
 }
 
-function odLoadJSZip(callback) {
-  if (window.JSZip) { callback(); return; }
-  const s = document.createElement("script");
-  s.src = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
-  s.onload = callback;
+function gdLoadPicker(callback) {
+  if (window.google && window.google.picker) { callback(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://apis.google.com/js/api.js';
+  s.onload = () => {
+    gapi.load('picker', callback);
+  };
   document.head.appendChild(s);
 }
 
-function odInit(callback) {
-  if (!window.msal) {
-    console.warn("MSAL no cargado");
-    if (callback) callback(new Error("MSAL no disponible"));
+// ── Login con Google ──────────────────────────────────────────────────────
+function gdLogin() {
+  const st = document.getElementById('od-status');
+  const loginBtn = document.getElementById('od-login-btn');
+
+  if (GD_CONFIG.clientId === 'PEGAR-AQUI-EL-CLIENT-ID-DE-GOOGLE') {
+    alert('Configure primero el clientId y apiKey de Google en GD_CONFIG.\nVer instrucciones en el código.');
     return;
   }
-  if (OD_CONFIG.clientId === "4ea747d4-8fe3-46f3-a9de-c58a4e947127") {
-    console.log("OneDrive: configure clientId y tenantId en OD_CONFIG");
-    return;
-  }
-  window.OD.msalApp = new msal.PublicClientApplication({
-    auth: {
-      clientId:  OD_CONFIG.clientId,
-      authority: "https://login.microsoftonline.com/" + OD_CONFIG.tenantId,
-      redirectUri: window.location.origin + window.location.pathname,
-    },
-    cache: { cacheLocation: "sessionStorage" },
-  });
-  // Manejar redirect de vuelta tras login
-  window.OD.msalApp.handleRedirectPromise().then(resp => {
-    if (resp && resp.account) odSetAccount(resp.account, resp.accessToken);
-  }).catch(e => console.error("MSAL redirect error:", e));
-  // Verificar si ya hay sesión activa
-  const accounts = window.OD.msalApp.getAllAccounts();
-  if (accounts.length > 0) odSetAccount(accounts[0], null);
-}
 
-function odSetAccount(account, token) {
-  window.OD.account = account;
-  if (token) window.OD.token = token;
-  const name = account.name || account.username;
-  document.getElementById("od-user").textContent = "✓ " + name;
-  document.getElementById("od-user").style.display = "inline";
-  document.getElementById("od-login-btn").textContent = "Reconectar";
-  document.getElementById("od-pick-btn").style.display = "inline";
-  document.getElementById("od-load-btn").style.display = "inline";
-  document.getElementById("od-folder").textContent = "📁 " + window.OD.folderPath;
-}
+  if (st) st.textContent = 'Cargando Google Sign-In...';
 
-async function odGetToken() {
-  if (!window.OD.msalApp || !window.OD.account) throw new Error("Inicia sesión primero en OneDrive.");
-  const scopes = ["Files.Read", "Files.ReadWrite", "User.Read"];
-  try {
-    const resp = await window.OD.msalApp.acquireTokenSilent({ scopes, account: window.OD.account });
-    window.OD.token = resp.accessToken;
-    return resp.accessToken;
-  } catch (e) {
-    // Si falla el silent token, pedir interactivo
-    const resp = await window.OD.msalApp.acquireTokenPopup({ scopes });
-    window.OD.token = resp.accessToken;
-    window.OD.account = resp.account;
-    return resp.accessToken;
-  }
-}
-
-async function odLogin() {
-  const st = document.getElementById("od-status");
-  if (OD_CONFIG.clientId === "4ea747d4-8fe3-46f3-a9de-c58a4e947127") {
-    alert("Configure primero el clientId y tenantId en OD_CONFIG.\nEdite el HTML y busque 'OD_CONFIG'.");
-    return;
-  }
-  st.textContent = "Cargando autenticación...";
-  odLoadJSZip(()=>{}); // precargar en paralelo
-  odLoadMSAL(async () => {
-    odInit();
-    if (!window.OD.msalApp) { st.textContent = "Error al inicializar MSAL."; return; }
-    try {
-      st.textContent = "Iniciando sesión Microsoft 365...";
-      const resp = await window.OD.msalApp.loginPopup({
-        scopes: ["Files.Read", "Files.ReadWrite", "User.Read"],
-      });
-      odSetAccount(resp.account, resp.accessToken);
-      st.textContent = "✓ Conectado";
-    } catch(e) {
-      st.textContent = "Error: " + e.message;
-    }
-  });
-}
-
-
-async function odGetToken() {
-  if (!window.OD.msalApp || !window.OD.account) throw new Error("Inicia sesión primero en OneDrive.");
-  const scopes = ["Files.Read", "Files.ReadWrite", "User.Read"];
-  try {
-    const resp = await window.OD.msalApp.acquireTokenSilent({ scopes, account: window.OD.account });
-    window.OD.token = resp.accessToken;
-    return resp.accessToken;
-  } catch (e) {
-    // Si falla el silent token, pedir interactivo
-    const resp = await window.OD.msalApp.acquireTokenPopup({ scopes });
-    window.OD.token = resp.accessToken;
-    window.OD.account = resp.account;
-    return resp.accessToken;
-  }
-}
-
-async function odLogin() {
-  if (!window.OD.msalApp) {
-    odInit();
-    if (!window.OD.msalApp) {
-      alert("Configure primero el clientId y tenantId en OD_CONFIG (al inicio del código).\n\nVer instrucciones en el botón de ayuda.");
-      return;
-    }
-  }
-  try {
-    document.getElementById("od-status").textContent = "Iniciando sesión...";
-    const resp = await window.OD.msalApp.loginPopup({
-      scopes: ["Files.Read", "Files.ReadWrite", "User.Read"],
+  gdLoadGSI(() => {
+    const tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GD_CONFIG.clientId,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: (resp) => {
+        if (resp.error) {
+          if (st) st.textContent = 'Error: ' + resp.error;
+          return;
+        }
+        window.GD.accessToken = resp.access_token;
+        // Get user info
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: 'Bearer ' + resp.access_token }
+        }).then(r => r.json()).then(info => {
+          window.GD.account = info;
+          const name = info.name || info.email || 'Usuario Google';
+          const userEl = document.getElementById('od-user');
+          const pickBtn = document.getElementById('od-pick-btn');
+          const loadBtn = document.getElementById('od-load-btn');
+          if (userEl) { userEl.textContent = '✓ ' + name; userEl.style.display = 'inline'; }
+          if (loginBtn) loginBtn.textContent = 'Reconectar';
+          if (pickBtn) pickBtn.style.display = 'inline';
+          if (loadBtn) loadBtn.style.display = 'inline';
+          if (st) st.textContent = '✓ Conectado';
+        });
+      },
     });
-    odSetAccount(resp.account, resp.accessToken);
-    document.getElementById("od-status").textContent = "✓ Conectado";
-  } catch (e) {
-    document.getElementById("od-status").textContent = "Error: " + e.message;
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+}
+
+// ── Seleccionar carpeta con Google Picker ─────────────────────────────────
+function odPickFolder() {
+  if (!window.GD.accessToken) {
+    alert('Primero conecta con tu cuenta de Google.');
+    return;
   }
+  const st = document.getElementById('od-status');
+  if (st) st.textContent = 'Abriendo selector de carpetas...';
+
+  gdLoadPicker(() => {
+    const picker = new google.picker.PickerBuilder()
+      .addView(new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+        .setSelectFolderEnabled(true)
+        .setMimeTypes('application/vnd.google-apps.folder'))
+      .setOAuthToken(window.GD.accessToken)
+      .setDeveloperKey(GD_CONFIG.apiKey)
+      .setCallback((data) => {
+        if (data.action === google.picker.Action.PICKED) {
+          const folder = data.docs[0];
+          window.GD.folderId = folder.id;
+          window.GD.folderName = folder.name;
+          const folderEl = document.getElementById('od-folder');
+          if (folderEl) folderEl.textContent = '📁 ' + folder.name;
+          if (st) st.textContent = 'Carpeta: ' + folder.name;
+          const loadBtn = document.getElementById('od-load-btn');
+          if (loadBtn) loadBtn.style.display = 'inline';
+        }
+      })
+      .build();
+    picker.setVisible(true);
+  });
 }
 
-async function odPickFolder() {
-  const path = prompt(
-    "Ingresa la ruta de la carpeta en OneDrive\n(relativa a la raíz, ej: /Despacho/Contestaciones):",
-    window.OD.folderPath
-  );
-  if (!path) return;
-  window.OD.folderPath = path.startsWith("/") ? path : "/" + path;
-  document.getElementById("od-folder").textContent = "📁 " + window.OD.folderPath;
-  document.getElementById("od-status").textContent = "Carpeta seleccionada";
-}
-
+// ── Cargar archivos de la carpeta ────────────────────────────────────────
 async function odLoadFiles() {
-  const st = document.getElementById("od-status");
+  const st = document.getElementById('od-status');
+  if (!window.GD.accessToken) { if (st) st.textContent = 'Conecta primero con Google.'; return; }
+  if (!window.GD.folderId) { if (st) st.textContent = 'Selecciona una carpeta primero.'; return; }
+
   try {
-    st.textContent = "Obteniendo token...";
-    const token = await odGetToken();
+    if (st) st.textContent = 'Listando archivos...';
 
-    // Construir URL de Graph API para listar archivos de la carpeta
-    const encodedPath = window.OD.folderPath === "/" || window.OD.folderPath === ""
-      ? "root/children"
-      : "root:" + encodeURIComponent(window.OD.folderPath) + ":/children";
-    const listUrl = "https://graph.microsoft.com/v1.0/me/drive/" + encodedPath +
-      "?$select=id,name,size,file&$top=" + OD_CONFIG.maxFiles;
-
-    st.textContent = "Listando archivos...";
+    // List files in folder
+    const q = encodeURIComponent(`'${window.GD.folderId}' in parents and trashed = false`);
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType)&pageSize=${GD_CONFIG.maxFiles}`;
     const listResp = await fetch(listUrl, {
-      headers: { Authorization: "Bearer " + token }
+      headers: { Authorization: 'Bearer ' + window.GD.accessToken }
     });
-    if (!listResp.ok) {
-      const err = await listResp.json();
-      throw new Error(err.error?.message || "Error " + listResp.status);
-    }
+    if (!listResp.ok) throw new Error('Error ' + listResp.status + ' al listar archivos');
     const listData = await listResp.json();
-    const items = (listData.value || []).filter(item => {
-      if (!item.file) return false; // solo archivos, no carpetas
-      const ext = item.name.toLowerCase().slice(item.name.lastIndexOf("."));
-      return OD_CONFIG.fileTypes.includes(ext);
-    });
+    const items = (listData.files || []).filter(f =>
+      GD_CONFIG.fileTypes.includes(f.mimeType) ||
+      f.name.toLowerCase().endsWith('.docx') ||
+      f.name.toLowerCase().endsWith('.txt')
+    );
 
     if (items.length === 0) {
-      st.textContent = "⚠ No se encontraron archivos .docx/.txt en esa carpeta";
+      if (st) st.textContent = '⚠ No se encontraron archivos .docx o .txt en esa carpeta';
       return;
     }
 
-    st.textContent = "Leyendo " + items.length + " archivo(s)...";
-    window.OD.loadedTexts = [];
+    if (st) st.textContent = 'Leyendo ' + items.length + ' archivo(s)...';
+    window.GD.loadedTexts = [];
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      st.textContent = "Leyendo " + (i+1) + "/" + items.length + ": " + item.name;
+      if (st) st.textContent = 'Leyendo ' + (i+1) + '/' + items.length + ': ' + item.name;
       try {
-        // Descargar contenido del archivo
-        const dlUrl = "https://graph.microsoft.com/v1.0/me/drive/items/" + item.id + "/content";
-        const dlResp = await fetch(dlUrl, {
-          headers: { Authorization: "Bearer " + token }
-        });
-        if (!dlResp.ok) continue;
-
-        let text = "";
-        const ext = item.name.toLowerCase().slice(item.name.lastIndexOf("."));
-
-        if (ext === ".txt") {
-          text = await dlResp.text();
-        } else if (ext === ".docx" || ext === ".doc") {
-          // Para .docx: extraer texto usando pdf.js no aplica
-          // Usar mammoth.js si está disponible, o extraer XML del zip
-          const buf = await dlResp.arrayBuffer();
-          text = await odExtractDocxText(buf, item.name);
+        let text = '';
+        if (item.mimeType === 'text/plain') {
+          const r = await fetch(`https://www.googleapis.com/drive/v3/files/${item.id}?alt=media`, {
+            headers: { Authorization: 'Bearer ' + window.GD.accessToken }
+          });
+          text = await r.text();
+        } else {
+          // Export docx as plain text via Drive API
+          const r = await fetch(`https://www.googleapis.com/drive/v3/files/${item.id}?alt=media`, {
+            headers: { Authorization: 'Bearer ' + window.GD.accessToken }
+          });
+          const buf = await r.arrayBuffer();
+          text = await gdExtractDocxText(buf, item.name);
         }
-
         if (text && text.length > 50) {
-          window.OD.loadedTexts.push({ name: item.name, text: text.substring(0, 6000) });
+          window.GD.loadedTexts.push({ name: item.name, text: text.substring(0, 6000) });
         }
-      } catch (fileErr) {
-        console.warn("Error leyendo " + item.name + ":", fileErr.message);
+      } catch(e) {
+        console.warn('Error leyendo ' + item.name + ':', e.message);
       }
     }
 
-    window.OD.ready = window.OD.loadedTexts.length > 0;
-    st.textContent = "✓ " + window.OD.loadedTexts.length + " archivo(s) cargado(s) como contexto";
-    document.getElementById("od-status").style.color = "#7fc97f";
+    window.GD.ready = window.GD.loadedTexts.length > 0;
+    if (st) {
+      st.textContent = '✓ ' + window.GD.loadedTexts.length + ' archivo(s) cargado(s) como contexto';
+      st.style.color = '#7fc97f';
+    }
+    if (window.__OD_CALLBACK__) window.__OD_CALLBACK__(window.GD.loadedTexts);
 
-    // Notificar a React app
-    if (window.__OD_CALLBACK__) window.__OD_CALLBACK__(window.OD.loadedTexts);
-
-  } catch (e) {
-    st.textContent = "Error: " + e.message;
-    st.style.color = "#ff8888";
-    console.error("OneDrive error:", e);
+  } catch(e) {
+    if (st) { st.textContent = 'Error: ' + e.message; st.style.color = '#ff8888'; }
+    console.error('Google Drive error:', e);
   }
 }
 
-// Extraer texto de un .docx (que es un ZIP con XML adentro)
-async function odExtractDocxText(arrayBuffer, fileName) {
+// ── Extraer texto de .docx ────────────────────────────────────────────────
+async function gdExtractDocxText(arrayBuffer, fileName) {
   try {
-    // Intentar con JSZip si está disponible
     if (window.JSZip) {
       const zip = await JSZip.loadAsync(arrayBuffer);
-      const docXml = zip.file("word/document.xml");
-      if (!docXml) return "";
-      const xml = await docXml.async("string");
-      // Extraer texto limpio del XML
+      const docXml = zip.file('word/document.xml');
+      if (!docXml) return '';
+      const xml = await docXml.async('string');
       return xml
-        .replace(/<w:br[^/]*/g, "\n")
-        .replace(/<w:p[ >]/g, "\n")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&apos;/g, "'").replace(/&quot;/g, '"')
-        .trim();
+        .replace(/<w:br[^/]*/g, '\n').replace(/<w:p[ >]/g, '\n')
+        .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+        .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim();
     }
-    // Fallback: usar pdf.js no aplica a docx
-    // Si mammoth.js está disponible (cargado externamente)
-    if (window.mammoth) {
-      const result = await window.mammoth.extractRawText({ arrayBuffer });
-      return result.value || "";
-    }
-    return "[" + fileName + ": instala JSZip o mammoth.js para leer .docx]";
-  } catch (e) {
-    return "[Error leyendo " + fileName + ": " + e.message + "]";
-  }
+    return '[' + fileName + ': Se necesita JSZip para leer .docx]';
+  } catch(e) { return ''; }
 }
 
-// Función que los prompts pueden llamar para obtener el contexto de OneDrive
-function odGetContext(maxChars) {
-  const max = maxChars || 8000;
-  if (!window.OD.ready || window.OD.loadedTexts.length === 0) return "";
-  let ctx = "\n\n═══════════════════════════════════════════════════════════\n";
-  ctx += "ESCRITOS DE REFERENCIA DEL DESPACHO (OneDrive):\n";
-  ctx += "═══════════════════════════════════════════════════════════\n";
-  ctx += "Los siguientes escritos son ejemplos reales del despacho. ";
-  ctx += "Usa su redacción, argumentos y estructura como referencia.\n\n";
-  let used = ctx.length;
-  for (const f of window.OD.loadedTexts) {
-    const block = "--- " + f.name + " ---\n" + f.text + "\n\n";
-    if (used + block.length > max) break;
-    ctx += block;
-    used += block.length;
-  }
-  ctx += "═══════════════════════════════════════════════════════════\n\n";
-  return ctx;
-}
-
-// MSAL y JSZip se cargan bajo demanda al hacer clic en 'Conectar con M365'
-
-// ── Carga diferida de librerías pesadas (después del render inicial) ─────────
-function lazyLoad(url, onload) {
+function gdLoadJSZip(callback) {
+  if (window.JSZip) { callback(); return; }
   const s = document.createElement('script');
-  s.src = url;
-  s.onload = onload || function(){};
-  s.onerror = function(){ console.warn('Failed to load:', url); };
+  s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  s.onload = callback;
   document.head.appendChild(s);
 }
 
+// ── Contexto para prompts ─────────────────────────────────────────────────
+function odGetContext(maxChars) {
+  const src = window.GD.ready ? window.GD : (window.OD && window.OD.ready ? window.OD : null);
+  if (!src || !src.loadedTexts || src.loadedTexts.length === 0) return '';
+  const max = maxChars || 8000;
+  let ctx = '\n\n═══════════════════════════════════════════════════════════\n';
+  ctx += 'ESCRITOS DE REFERENCIA DEL DESPACHO:\n';
+  ctx += '═══════════════════════════════════════════════════════════\n';
+  ctx += 'Los siguientes escritos son ejemplos reales del despacho. Usa su redacción como referencia.\n\n';
+  let used = ctx.length;
+  for (const f of src.loadedTexts) {
+    const block = '--- ' + f.name + ' ---\n' + f.text + '\n\n';
+    if (used + block.length > max) break;
+    ctx += block; used += block.length;
+  }
+  ctx += '═══════════════════════════════════════════════════════════\n\n';
+  return ctx;
+}
+
+// Precargar JSZip al conectar
+function _gdPreload() { gdLoadJSZip(() => {}); }
+
+// Carga diferida de librerías pesadas después del render
 window.addEventListener('load', function() {
-  // Esperar a que React renderice (100ms) antes de cargar librerías pesadas
   setTimeout(function() {
-    // Cargar docx.js en segundo plano
+    const docxScript = document.createElement('script');
+    docxScript.src = 'https://cdn.jsdelivr.net/npm/docx@9.6.1/dist/index.iife.js';
+    docxScript.onload = function() { window.docx = window.docx || docx; };
+    // docx already inline - skip CDN load
     console.log('docx.js already loaded inline');
-    // Cargar pdf.js en segundo plano
     console.log('pdf.js already loaded inline');
   }, 100);
 });
 </script>
+
 
 <script>
 // ── Lógica pura JS (sin JSX, sin React hooks) ─────────────────────────────────
