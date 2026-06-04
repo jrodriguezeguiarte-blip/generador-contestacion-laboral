@@ -1028,7 +1028,7 @@ const {useState, useRef, useEffect, memo} = React;
 const h = React.createElement;
 
 // ── Hooks de carga de librerías ────────────────────────────────────────────
-const usePDF=()=>{const[ok,set]=useState(false);useEffect(()=>{const chk=()=>{if(window.pdfjsLib){if(!window.pdfjsLib.GlobalWorkerOptions.workerSrc){window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}set(true);return true;}return false;};if(!chk()){const t=setInterval(()=>{if(chk())clearInterval(t);},300);return()=>clearInterval(t);}},[]);return ok;};
+const usePDF=()=>{const[ok,set]=useState(false);useEffect(()=>{const chk=()=>{if(window.pdfjsLib){if(!window.pdfjsLib.GlobalWorkerOptions.workerSrc){window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.worker.min.js';}set(true);return true;}return false;};if(!chk()){const t=setInterval(()=>{if(chk())clearInterval(t);},300);return()=>clearInterval(t);}},[]);return ok;};
 const useDOCX=()=>{const[ok,set]=useState(false);useEffect(()=>{const chk=()=>{if(window.docx){set(true);return true;}return false;};if(!chk()){const t=setInterval(()=>{if(chk())clearInterval(t);},300);return()=>clearInterval(t);}},[]);return ok;};
 
 // ── Campo controlado sin lag ───────────────────────────────────────────────
