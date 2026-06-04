@@ -161,7 +161,7 @@ if(window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   <span style="color:#D4A96A;font-family:Georgia,serif;font-size:13px;white-space:nowrap;font-weight:700;">🔑 Anthropic API Key:</span>
   <input id="apikey-input" type="password" placeholder="sk-ant-api03-..."
     style="width:300px;padding:7px 12px;border-radius:4px;border:1.5px solid #D4A96A;background:#0d2a1a;color:#fff;font-family:Georgia,serif;font-size:13px;outline:none;"
-    oninput="window.ANTHROPIC_KEY=this.value.trim();document.getElementById('apikey-status').textContent=this.value.trim().length>10?'✓':'';"/>
+    oninput="window.ANTHROPIC_KEY=this.value.trim();localStorage.setItem('anthropic_key',this.value.trim());document.getElementById('apikey-status').textContent=this.value.trim().length>10?'✓':'';"/>
   <span id="apikey-status" style="color:#D4A96A;font-family:Georgia,serif;font-size:13px;"></span>
   <div style="width:1px;height:28px;background:rgba(255,255,255,0.2);margin:0 4px;"></div>
   <!-- OneDrive panel -->
@@ -440,6 +440,15 @@ function _gdPreload() { gdLoadJSZip(() => {}); }
 
 // Carga diferida de librerías pesadas después del render
 window.addEventListener('load', function() {
+  // Restore API key from localStorage
+  const savedKey = localStorage.getItem('anthropic_key');
+  if (savedKey && savedKey.length > 10) {
+    window.ANTHROPIC_KEY = savedKey;
+    const field = document.getElementById('apikey-input');
+    if (field) { field.value = savedKey; }
+    const status = document.getElementById('apikey-status');
+    if (status) { status.textContent = '✓'; }
+  }
   setTimeout(function() {
     const docxScript = document.createElement('script');
     docxScript.src = 'https://cdn.jsdelivr.net/npm/docx@9.6.1/dist/index.iife.js';
@@ -1018,6 +1027,18 @@ const I0=()=>({paso:1,archDem:null,txtDem:"",archsPru:[],txtPru:"",procDem:false
 
 </script>
 <script>
+
+
+// ── Tabla SMG CONASAMI ────────────────────────────────────────────────────────
+const SMG={
+  2019:{g:102.68,f:176.72},
+  2020:{g:123.22,f:185.56},
+  2021:{g:141.70,f:213.39},
+  2022:{g:172.87,f:260.34},
+  2023:{g:207.44,f:312.41},
+  2024:{g:248.93,f:374.89},
+  2025:{g:278.80,f:419.88},
+};
 
 // ── Constantes de color ──────────────────────────────────────────────────────
 const G="#1D4A2F",GP="#E8F0EB",R="#8B2B1A",RP="#FFF0EE",B="#1A4A7A",BP="#E8F0FA";
